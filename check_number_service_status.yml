@@ -1,0 +1,63 @@
+---
+ - hosts: all
+   become: true
+   vars:
+    playbook_name: "check_number_service_status"
+    alert: "check_number_service_status"
+
+   pre_tasks:
+     - name: Verifying ansible_limit
+       assert:
+         that: ansible_limit != ""
+         fail_msg: "'limit' should not be blank"
+         success_msg: "'limit' is {{ ansible_limit }}"
+
+   tasks:
+    - name: slack excecution
+      include_role:
+        name: slack_notifications
+        tasks_from: excecution
+      vars:
+        playbook: "{{ playbook_name }}"
+
+    - name: Restart number-service process if not running
+      block:
+      - name: checking status
+        include_role:
+          name: status_check
+          tasks_from: service_check
+        vars:
+          role_service_name: number-service
+
+      rescue:
+        - name: Restart number-service
+          include_role:
+            name: service_restart
+            tasks_from: restart
+          vars:
+            role_service_name: number-service
+
+        - name: Confirm number-service status
+          block:
+            - name: Confirm number-service status
+              include_role:
+                name: status_check
+                tasks_from: service_check
+              vars:
+                role_service_name: number-service
+          rescue:
+             - name: Pagerduty escalation
+               include_role:
+                 name: pd_alerts
+                 tasks_from: pd_noc
+               vars:
+                 alert_name: "{{ alert }}"
+
+    - name: slack completion
+      include_role:
+        name: slack_notifications
+        tasks_from: completion
+      vars:
+        playbook: "{{ playbook_name }}"
+...
+
